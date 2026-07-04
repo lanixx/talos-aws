@@ -14,7 +14,6 @@ module "talos" {
 
   #deploy_external_cloud_provider_iam_policies = true
 
-  # Das Modul fasst Instanztypen und Patches innerhalb strukturierter Objekte zusammen
   control_plane = {
     instance_type = var.control_plane_instance_type
     root_block_device = [
