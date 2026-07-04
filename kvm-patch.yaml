@@ -1,0 +1,12 @@
+cluster:
+  allowScheduling: true
+machine:
+  nodeLabels:
+    node-role.kubernetes.io/worker: ""
+  kernel:
+    modules:
+      - name: kvm
+      - name: kvm_intel
+    args:
+      - kvm_intel.nested=1
+      - kvm_intel.ept=1
