@@ -17,12 +17,9 @@ module "talos" {
 
   control_plane = {
     instance_type = var.control_plane_instance_type
-    root_block_device = [
-      {
-        volume_size = 100
-        volume_type = "gp3"
-      }
-    ]
+    # root_block_device wird vom Modul-Schema (v0.15.1) nicht unterstuetzt und stillschweigend
+    # ignoriert (kein Fehler, aber auch kein Effekt) - Root-Volume bleibt fest bei 50 GB,
+    # siehe README, Abschnitt "Bekannte Einschraenkungen".
     config_patch_files = [
       "${path.module}/kvm-patch.yaml"
     ]

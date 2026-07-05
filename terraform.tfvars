@@ -1,12 +1,16 @@
-# ACHTUNG Kosten: c6i.metal kostet ca. $5,44/h pro Node (us-east-1, Stand 2026).
-# Bei control_plane_count = 3 sind das ca. $16,32/h bzw. ~$11.760/Monat, solange der Cluster laeuft.
-# Fuer reine Lern-/Testzwecke control_plane_count auf 1 reduzieren und den Cluster nach der
-# Session mit "terraform destroy" wieder abbauen.
+# Bare-Metal-Instanzen (*.metal) unterstuetzen auf AWS kategorisch kein UEFI-Boot, die offizielle
+# Talos-AMI ist aber strikt auf boot_mode=uefi registriert -> *.metal kann diese AMI nicht booten
+# (siehe README, Befund 1). Daher virtualisierte Nitro-Instanz statt Bare-Metal.
+# c7i ist bewusst gewaehlt, weil die Familie seit Feb. 2026 zu den AWS-Instanztypen gehoert, die
+# spaeter per cpu_options.nested_virtualization=enabled echte Hardware-Nested-Virtualization
+# unterstuetzen koennten (erfordert einen Fork von isovalent/terraform-aws-talos, siehe README).
+# Bis dieser Fork existiert, laden die kvm/kvm_intel-Kernelmodule zwar, KVM faellt aber mangels
+# VMX-Passthrough auf Software-Emulation (TCG) zurueck - funktional, aber langsam.
 aws_region                  = "us-east-1"
 cluster_name                = "talos-kvm-cluster"
 talos_version               = "v1.12.9"
 kubernetes_version          = "1.33.1"
-control_plane_instance_type = "c6i.metal"
+control_plane_instance_type = "c7i.large"
 control_plane_count         = 3
 
 vpc_cidr               = "10.0.0.0/16"

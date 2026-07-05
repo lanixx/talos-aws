@@ -13,8 +13,9 @@ set -euo pipefail
 CILIUM_VERSION="${CILIUM_VERSION:-1.18.0}"
 
 cd "$(dirname "$0")/.."
+terraform output -raw kubeconfig > /tmp/kubeconfig
 export KUBECONFIG
-KUBECONFIG="$(terraform output -raw kubeconfig_pfad)"
+KUBECONFIG="/tmp/kubeconfig"
 
 command -v helm >/dev/null || { echo "helm ist nicht installiert (https://helm.sh/docs/intro/install/)" >&2; exit 1; }
 command -v kubectl >/dev/null || { echo "kubectl ist nicht installiert" >&2; exit 1; }
