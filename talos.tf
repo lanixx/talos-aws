@@ -30,6 +30,7 @@ module "talos" {
     }
   }
 
+  worker_groups = []
 
 #   worker_groups = {
 #     wg1 = {
