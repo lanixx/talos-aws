@@ -6,8 +6,8 @@ Dieses Repository enthält die deklarative Infrastruktur-als-Code-Definition zur
 ### Architektur
 Die physische Grundlage des Clusters bilden dedizierte Bare-Metal-Instanzen der Klasse `c6i.metal`. Diese Architekturentscheidung ist zwingend erforderlich, da der AWS-Nitro-Hypervisor bei herkömmlichen virtualisierten EC2-Instanzen die essenziellen VMX-CPU-Erweiterungen herausfiltert, wodurch KubeVirt auf ineffiziente Software-Emulation zurückfallen würde. Das Architekturdesign verzichtet bewusst auf dedizierte Worker-Knoten und nutzt stattdessen ein reines Control-Plane-Cluster, bestehend aus drei Knoten, welche durch gezielte Patches als vollwertige Worker für Workloads autorisiert sind. Die Integration in das externe Netzwerk wird durch den AWS Cloud Controller Manager sichergestellt, welcher Ingress-Dienste dynamisch mit nativen AWS Elastic Load Balancern verknüpft.
 
+
 ```mermaid
-architecture-as-code
 graph TD
     Client[Externer Client / Internet] --> |Port 443 / API| ALB[AWS Network Load Balancer]
     
