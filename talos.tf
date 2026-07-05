@@ -17,6 +17,12 @@ module "talos" {
 
   control_plane = {
     instance_type = var.control_plane_instance_type
+    root_block_device = [
+      {
+        volume_size = 100
+        volume_type = "gp3"
+      }
+    ]
     config_patch_files = [
       "${path.module}/kvm-patch.yaml"
     ]
