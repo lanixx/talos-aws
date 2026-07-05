@@ -1,5 +1,5 @@
 module "talos" {
-  source = "git::https://github.com/isovalent/terraform-aws-talos?ref=main"
+  source = "git::https://github.com/isovalent/terraform-aws-talos?ref=v0.15.1"
 
   cluster_name          = var.cluster_name
   region                = var.aws_region
@@ -12,19 +12,14 @@ module "talos" {
   controlplane_count         = var.control_plane_count
   allow_workload_on_cp_nodes = true
 
-  #deploy_external_cloud_provider_iam_policies = true
+  enable_external_cloud_provider              = true
+  deploy_external_cloud_provider_iam_policies = true
 
   control_plane = {
     instance_type = var.control_plane_instance_type
-    root_block_device = [
-      {
-        volume_size = 100
-        volume_type = "gp3"
-      }
-    ]
     config_patch_files = [
       "${path.module}/kvm-patch.yaml"
-    ]    
+    ]
     tags = {
       Role = "control-plane"
     }
@@ -32,29 +27,7 @@ module "talos" {
 
   worker_groups = []
 
-#   worker_groups = {
-#     wg1 = {
-#       instance_type = var.control_plane_instance_type
-#       desired_size  = 0
-#       min_size      = 0
-#       max_size      = 0
-#     }
-#   }
-
-  # worker_config_patches = [
-  #   yamlencode({
-  #     machine = {
-  #       kernel = {
-  #         modules = [
-  #           { name = "kvm" },
-  #           { name = "kvm_intel" }
-  #         ]
-  #       }
-  #     }
-  #   })
-  # ]
-
-    tags = {
+  tags = {
     Environment = "talos-nested-kvm"
   }
 }
