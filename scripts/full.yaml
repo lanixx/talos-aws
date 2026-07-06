@@ -1,0 +1,191 @@
+apiVersion: yaook.cloud/v1
+kind: KeystoneDeployment
+metadata:
+  name: keystone
+  namespace: yaook
+spec:
+  targetRelease: "2023.2"
+  region: RegionOne
+  database:
+    replicas: 1
+    storageClassName: local-path
+    storageSize: 10Gi
+    proxy: {}
+    backup:
+      schedule: "0 0 * * *"
+  memcached: {}
+  issuerRef:
+    name: yaook-internal
+  api:
+    replicas: 1
+    ingress:
+      fqdn: keystone.yaook.cloud
+      port: 443
+  keystoneConfig:
+    DEFAULT:
+      debug: "True"
+    token:
+      provider: fernet
+---
+apiVersion: yaook.cloud/v1
+kind: GlanceDeployment
+metadata:
+  name: glance
+  namespace: yaook
+spec:
+  targetRelease: "2023.2"
+  region: RegionOne
+  keystoneRef:
+    name: keystone
+  database:
+    replicas: 1
+    storageClassName: local-path
+    storageSize: 10Gi
+    proxy: {}
+    backup:
+      schedule: "0 0 * * *"
+  memcached: {}
+  issuerRef:
+    name: yaook-internal
+  api:
+    replicas: 1
+    ingress:
+      fqdn: glance.yaook.cloud
+      port: 443
+  backends:
+    ceph:
+      keyringReference: rook-ceph-client-glance
+      keyringUsername: glance
+      keyringPoolname: images
+  glanceConfig:
+    glance_store:
+      default_backend: ceph
+---
+apiVersion: yaook.cloud/v1
+kind: NovaDeployment
+metadata:
+  name: nova
+  namespace: yaook
+spec:
+  targetRelease: "2023.2"
+  region: RegionOne
+  keystoneRef:
+    name: keystone
+  issuerRef:
+    name: yaook-internal
+  database:
+    api:
+      replicas: 1
+      storageClassName: local-path
+      storageSize: 10Gi
+      proxy: {}
+      backup:
+        schedule: "0 0 * * *"
+    cell0:
+      replicas: 1
+      storageClassName: local-path
+      storageSize: 10Gi
+      proxy: {}
+      backup:
+        schedule: "0 0 * * *"
+    cell1:
+      replicas: 1
+      storageClassName: local-path
+      storageSize: 10Gi
+      proxy: {}
+      backup:
+        schedule: "0 0 * * *"
+    placement:
+      replicas: 1
+      storageClassName: local-path
+      storageSize: 10Gi
+      proxy: {}
+      backup:
+        schedule: "0 0 * * *"
+  memcached: {}
+  messageQueue: {}
+  metadata: {}
+  vnc: {}
+  databaseCleanup:
+    schedule: "0 0 * * *"
+  eviction: {}
+  api:
+    replicas: 1
+    ingress:
+      fqdn: nova.yaook.cloud
+      port: 443
+  scheduler:
+    replicas: 1
+  conductor:
+    replicas: 1
+  placement:
+    replicas: 1
+    ingress:
+      fqdn: placement.yaook.cloud
+      port: 443
+  novaConfig:
+    DEFAULT:
+      debug: "True"
+---
+apiVersion: yaook.cloud/v1
+kind: NeutronDeployment
+metadata:
+  name: neutron
+  namespace: yaook
+spec:
+  targetRelease: "2023.2"
+  region: RegionOne
+  keystoneRef:
+    name: keystone
+  novaRef:
+    name: nova
+  issuerRef:
+    name: yaook-internal
+  database:
+    replicas: 1
+    storageClassName: local-path
+    storageSize: 10Gi
+    proxy: {}
+    backup:
+      schedule: "0 0 * * *"
+  memcached: {}
+  messageQueue: {}
+  neutronML2Config: {}
+  api:
+    replicas: 1
+    ingress:
+      fqdn: neutron.yaook.cloud
+      port: 443
+  setup:
+    ovn:
+      controller: {}
+      northboundOVSDB:
+        replicas: 1
+        backup:
+          schedule: "0 0 * * *"
+      southboundOVSDB:
+        replicas: 1
+        backup:
+          schedule: "0 0 * * *"
+        ovnRelay: {}
+      northd:
+        replicas: 1
+  neutronConfig:
+    DEFAULT:
+      debug: "True"
+---
+apiVersion: yaook.cloud/v1
+kind: HorizonDeployment
+metadata:
+  name: horizon
+  namespace: yaook
+spec:
+  targetRelease: "2023.2"
+  keystoneRef:
+    name: keystone
+  issuerRef:
+    name: yaook-internal
+  replicas: 1
+  ingress:
+    fqdn: horizon.yaook.cloud
+    port: 443

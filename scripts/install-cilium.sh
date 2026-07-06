@@ -35,6 +35,6 @@ helm upgrade --install cilium cilium/cilium \
   --set cgroup.autoMount.enabled=false \
   --set cgroup.hostRoot=/sys/fs/cgroup \
   --set k8sServiceHost=localhost \
-  --set k8sServicePort=7445
+  --set k8sServicePort=7445 \
   --set-json 'operator.tolerations=[{"key":"node.cloudprovider.kubernetes.io/uninitialized","value":"true","effect":"NoSchedule"},{"key":"node.kubernetes.io/not-ready","effect":"NoSchedule"},{"key":"node-role.kubernetes.io/control-plane","effect":"NoSchedule"}]'
 
