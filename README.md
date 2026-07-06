@@ -43,7 +43,7 @@ Terraform provisioniert zunächst ein VPC mit drei öffentlichen und drei privat
 
 **Alle Cluster-Knoten laufen in den öffentlichen Subnetzen mit öffentlicher IP-Adresse.** Das ist eine Vorgabe des zugrunde liegenden Terraform-Moduls: Der Talos-Provider spricht während Bootstrap und Konfiguration direkt über die öffentliche IP mit der Talos-API (Port 50000) jedes Knotens. Die privaten Subnetze tragen zwar die nötigen Tags, werden aktuell aber von keiner Ressource genutzt – sie dienen als Grundlage für spätere interne Load Balancer, falls Kubernetes-Services das benötigen. Ein NAT-Gateway ist deshalb bewusst nicht aktiviert.
 
-Die Control-Plane-Knoten laufen auf virtualisierten Nitro-Instanzen der Klasse `c7i.large` – bewusst keine Bare-Metal-Instanz. Bare-Metal-Instanzen unterstützen auf AWS kein UEFI-Boot (nur Legacy BIOS), die offizielle Talos-AMI ist aber UEFI-basiert; ein `.metal`-Typ würde beim Instanzstart mit einem Boot-Mode-Fehler scheitern, bevor Nested Virtualization überhaupt zur Debatte steht. `c7i` wurde zusätzlich gezielt gewählt, weil die Familie zu den AWS-Instanztypen gehört, die grundsätzlich für die CPU-Option `cpu_options.nested_virtualization` vorgesehen sind (Details dazu in Abschnitt 3).
+Die Control-Plane-Knoten laufen auf virtualisierten Nitro-Instanzen der Klasse `m7i.xlarge` – bewusst keine Bare-Metal-Instanz. Bare-Metal-Instanzen unterstützen auf AWS kein UEFI-Boot (nur Legacy BIOS), die offizielle Talos-AMI ist aber UEFI-basiert; ein `.metal`-Typ würde beim Instanzstart mit einem Boot-Mode-Fehler scheitern, bevor Nested Virtualization überhaupt zur Debatte steht. `m7i` wurde zusätzlich gezielt gewählt, weil die Familie zu den AWS-Instanztypen gehört, die grundsätzlich für die CPU-Option `cpu_options.nested_virtualization` vorgesehen sind (Details dazu in Abschnitt 3).
 
 Ein Network Load Balancer (vom Isovalent-Modul erzeugt) dient als stabiler Endpunkt für Kubernetes-API (6443) und Talos-API (50000) über alle drei Control-Plane-Knoten hinweg. Das Cluster verzichtet auf dedizierte Worker-Knoten (`worker_groups = []`); durch Entfernen der Standard-Taints (`allow_workload_on_cp_nodes = true`) übernehmen die drei Control-Plane-Knoten zugleich die Worker-Rolle. Der AWS Cloud Controller Manager ist aktiviert (`enable_external_cloud_provider = true`, `deploy_external_cloud_provider_iam_policies = true`), wodurch Kubernetes die AWS-API für Node-Metadaten und künftige Load-Balancer-Provisionierung nutzen kann.
 
@@ -56,9 +56,9 @@ graph TD
             NLB["AWS Network Load Balancer<br/>Listener 443 → Ziel 6443 (K8s-API)<br/>Listener 50000 (Talos-API)"]
 
             subgraph Public["Öffentliche Subnetze × 3 AZs"]
-                CP1["Node 1: c7i.large<br/>Control-Plane + Worker<br/>öffentliche IP"]
-                CP2["Node 2: c7i.large<br/>Control-Plane + Worker<br/>öffentliche IP"]
-                CP3["Node 3: c7i.large<br/>Control-Plane + Worker<br/>öffentliche IP"]
+                CP1["Node 1: m7i.xlarge<br/>Control-Plane + Worker<br/>öffentliche IP"]
+                CP2["Node 2: m7i.xlarge<br/>Control-Plane + Worker<br/>öffentliche IP"]
+                CP3["Node 3: m7i.xlarge<br/>Control-Plane + Worker<br/>öffentliche IP"]
             end
 
             subgraph Private["Private Subnetze × 3 AZs<br/>kein NAT-Gateway, aktuell ohne Workload"]
@@ -92,7 +92,7 @@ graph TD
 |---|---|---|
 | VPC + Subnetze | `vpc.tf` | Netzwerkbasis; private Subnetze aktuell ungenutzt |
 | Network Load Balancer | Isovalent-Modul | Endpoint für Kubernetes- und Talos-API |
-| 3× EC2-Instanz `c7i.large` | Isovalent-Modul | Etcd, API-Server, Kubelet, KVM-Host |
+| 3× EC2-Instanz `m7i.xlarge` | Isovalent-Modul | Etcd, API-Server, Kubelet, KVM-Host |
 | `kvm-patch.yaml` | dieses Repository | Kernel-Module `kvm`/`kvm_intel`, Worker-Label |
 | AWS Cloud Controller Manager | Isovalent-Modul, aktiviert | Node-Metadaten, Grundlage für dynamische ELBs |
 | `scripts/install-cilium.sh` | dieses Repository | CNI-Installation nach dem Bootstrap |
@@ -129,7 +129,7 @@ graph TD
 
 - Account mit Rechten für EC2, VPC, ELB/NLB und IAM-Policy-Erstellung (für den Cloud Controller Manager).
 - Kenntnis der eigenen öffentlichen IP-Adresse für `external_source_cidrs`.
-- Für `c7i.large` reichen die Standard-Service-Quotas in der Regel aus.
+- Für `m7i.xlarge` reichen die Standard-Service-Quotas in der Regel aus.
 
 ---
 
@@ -215,7 +215,7 @@ Alle drei Knoten sollten jetzt `Ready` sein. Für den eigentlichen VM-Workload-A
 | `cluster_name` | `talos-kvm-cluster` | |
 | `talos_version` | `v1.12.9` | |
 | `kubernetes_version` | `1.33.1` | |
-| `control_plane_instance_type` | `c7i.large` | Siehe Abschnitt 2/3 zur Instanztyp-Wahl |
+| `control_plane_instance_type` | `m7i.xlarge` | Siehe Abschnitt 2/3 zur Instanztyp-Wahl |
 | `control_plane_count` | `3` | Für Kurztests auf `1` reduzierbar |
 | `vpc_cidr` | `10.0.0.0/16` | |
 | `vpc_availability_zones` | `us-east-1a`, `us-east-1b`, `us-east-1c` | |
@@ -226,14 +226,14 @@ Alle drei Knoten sollten jetzt `Ready` sein. Für den eigentlichen VM-Workload-A
 | `deploy_external_cloud_provider_iam_policies` | `true` | Nötige IAM-Policies dafür |
 | Root-Volume | 50 GB, gp3 (Modul-Default) | Nicht konfigurierbar, siehe Abschnitt 3 |
 
-**Kostenrichtwert** (On-Demand, us-east-1, ohne Gewähr – aktuelle Preise auf [aws.amazon.com/ec2/pricing](https://aws.amazon.com/ec2/pricing/on-demand/) prüfen): `c7i.large` liegt bei ca. **$0,09/Std.** pro Knoten, bei drei durchgehend laufenden Knoten also ca. **$195/Monat**. Nicht vergessen: `terraform destroy` nach jedem Test (Abschnitt 9).
+**Kostenrichtwert** (On-Demand, us-east-1, ohne Gewähr – aktuelle Preise auf [aws.amazon.com/ec2/pricing](https://aws.amazon.com/ec2/pricing/on-demand/) prüfen): `m7i.xlarge` liegt bei ca. **$0,09/Std.** pro Knoten, bei drei durchgehend laufenden Knoten also ca. **$195/Monat**. Nicht vergessen: `terraform destroy` nach jedem Test (Abschnitt 9).
 
 ---
 
 ## 7. FAQ
 
 **Warum keine Bare-Metal-Instanz, wenn es doch um Nested Virtualization geht?**
-Bare-Metal-Instanzen unterstützen auf AWS kein UEFI-Boot, die offizielle Talos-AMI setzt aber UEFI voraus – der Instanzstart würde bereits an einem Boot-Mode-Fehler scheitern, bevor Nested Virtualization überhaupt relevant wird. `c7i.large` unterstützt UEFI und gehört zusätzlich zu den Instanzfamilien, die AWS grundsätzlich für die CPU-Option `cpu_options.nested_virtualization` vorsieht – auch wenn diese Option aktuell noch nicht durchgereicht wird (Abschnitt 3).
+Bare-Metal-Instanzen unterstützen auf AWS kein UEFI-Boot, die offizielle Talos-AMI setzt aber UEFI voraus – der Instanzstart würde bereits an einem Boot-Mode-Fehler scheitern, bevor Nested Virtualization überhaupt relevant wird. `m7i.xlarge` unterstützt UEFI und gehört zusätzlich zu den Instanzfamilien, die AWS grundsätzlich für die CPU-Option `cpu_options.nested_virtualization` vorsieht – auch wenn diese Option aktuell noch nicht durchgereicht wird (Abschnitt 3).
 
 **Warum ist `worker_groups` ein leeres Array?**
 Damit das Cluster ausschließlich aus den drei Control-Plane-Knoten besteht. `allow_workload_on_cp_nodes = true` entfernt die Standard-Taints, wodurch diese Knoten zugleich als Worker fungieren; separate, zusätzliche Instanzen entfallen dadurch.
@@ -258,7 +258,7 @@ Das Repository enthält keine `LICENSE`-Datei.
 ## 8. Troubleshooting
 
 **`terraform apply` scheitert mit einem Boot-Mode-/UEFI-Fehler**
-Tritt auf, wenn `control_plane_instance_type` auf einen `.metal`-Typ geändert wird. Bare-Metal-Instanzen unterstützen kein UEFI, die Talos-AMI aber schon (siehe Abschnitt 2/3). Bei einem virtualisierten Typ wie `c7i.large` bleibend.
+Tritt auf, wenn `control_plane_instance_type` auf einen `.metal`-Typ geändert wird. Bare-Metal-Instanzen unterstützen kein UEFI, die Talos-AMI aber schon (siehe Abschnitt 2/3). Bei einem virtualisierten Typ wie `m7i.xlarge` bleibend.
 
 **`terraform apply` hängt beim Warten auf Subnetze**
 Das zugrunde liegende Modul wartet auf drei Subnetze mit dem Tag `type=public` in der VPC. Ursache ist praktisch immer ein Tagging-Problem in `vpc.tf`. Prüfen mit:
