@@ -42,6 +42,7 @@ configs:
 
 cilium:
     bash scripts/install-cilium.sh
+    sleep 15
 
 # --- Kubelet-TLS-Fix (selbstsignierte Serving-Zertifikate statt Approver) ---
 
@@ -94,8 +95,8 @@ destroy:
             echo "  - $ns/$name"
             kubectl delete svc "$name" -n "$ns"
         done
-        echo "Warte 30s, bis AWS die zugehörigen ELBs entfernt hat..."
-        sleep 30
+        echo "Warte 15s, bis AWS die zugehörigen ELBs entfernt hat..."
+        sleep 15
     fi
     terraform destroy
 
