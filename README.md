@@ -1,165 +1,118 @@
-# Talos Linux auf AWS mit Nested Virtualization
+
+# Talos Linux on AWS with Nested Virtualization
 
 **Repository:** [lanixx/talos-aws](https://github.com/lanixx/talos-aws)
 
-## Inhaltsverzeichnis
+## Table of Contents
 
-1. [Überblick](#1-überblick)
-2. [Architektur](#2-architektur)
-3. [Bekannte Einschränkungen](#3-bekannte-einschränkungen)
-4. [Voraussetzungen](#4-voraussetzungen)
-5. [Deployment – Schritt für Schritt](#5-deployment--schritt-für-schritt)
-6. [Konfigurationsreferenz](#6-konfigurationsreferenz)
+1. [Overview](#1-overview)
+2. [Architecture](#2-architecture)
+3. [Known Limitations](#3-known-limitations)
+4. [Prerequisites](#4-prerequisites)
+5. [Deployment – Step by Step](#5-deployment--step-by-step)
+6. [Configuration Reference](#6-configuration-reference)
 7. [FAQ](#7-faq)
 8. [Troubleshooting](#8-troubleshooting)
-9. [Cluster-Abbau](#9-cluster-abbau)
-10. [Weiterführende Links](#10-weiterführende-links)
+9. [Cluster Teardown](#9-cluster-teardown)
+10. [Further Links](#10-further-links)
 
----
 
-## 1. Überblick
+## 1. Overview
 
-Dieses Repository stellt einen Talos-Linux-Kubernetes-Cluster auf AWS EC2 per Terraform bereit. Kernziel ist ein Cluster mit hardwarenaher verschachtelter Virtualisierung (nested virtualization) als Grundlage für spätere VM-Workloads – über KubeVirt oder als Basis für OpenStack via Yaook. Die Orchestrierung nutzt das Community-Modul [isovalent/terraform-aws-talos](https://github.com/isovalent/terraform-aws-talos), das den Bootstrapping-Prozess von Talos weitgehend automatisiert.
+This repository provisions a Talos Linux Kubernetes cluster on AWS EC2 using Terraform. The core goal is a cluster with hardware-near nested virtualization as a foundation for future VM workloads – via KubeVirt or as a base for OpenStack via Yaook. The orchestration utilizes the community module [isovalent/terraform-aws-talos](https://github.com/isovalent/terraform-aws-talos), which largely automates the Talos bootstrapping process.
 
-Das Setup ist ein Lern-/Experimentier-Projekt, kein produktionsreifes Referenzdesign. Es besteht aus einem reinen Control-Plane-Cluster (keine separaten Worker), das über eine Handvoll Terraform-Dateien und ein Installations-Skript für Cilium definiert ist.
+The setup is a learning/experimental project, not a production-ready reference design. It consists of a pure control-plane cluster (no separate workers), which is defined via a handful of Terraform files and an installation script for Cilium.
 
-| Datei | Zweck |
+| File | Purpose |
 |---|---|
-| `README.md` | Diese Dokumentation |
-| `main.tf` | Terraform-/Provider-Versionen |
-| `vpc.tf` | VPC mit öffentlichen und privaten Subnetzen über 3 Availability Zones |
-| `talos.tf` | Einbindung des Isovalent-Moduls, Control-Plane-Definition |
-| `kvm-patch.yaml` | Talos-Machine-Config-Patch: KVM-Kernel-Module, Worker-Label |
-| `variables.tf` | Variablendeklarationen |
-| `terraform.tfvars` | Konkrete Werte (Region, Instanztyp, CIDRs, …) |
-| `outputs.tf` | Outputs für `kubeconfig` und `talosconfig` |
-| `scripts/install-cilium.sh` | Installiert Cilium als CNI nach dem Bootstrap |
+| `README.md` | This documentation |
+| `main.tf` | Terraform/provider versions |
+| `vpc.tf` | VPC with public and private subnets across 3 Availability Zones |
+| `talos.tf` | Integration of the Isovalent module, control-plane definition |
+| `kvm-patch.yaml` | Talos machine config patch: KVM kernel modules, worker label |
+| `variables.tf` | Variable declarations |
+| `terraform.tfvars` | Concrete values (region, instance type, CIDRs, …) |
+| `outputs.tf` | Outputs for `kubeconfig` and `talosconfig` |
+| `scripts/install-cilium.sh` | Installs Cilium as CNI after the bootstrap |
 
----
 
-## 2. Architektur
+## 2. Architecture
 
-Terraform provisioniert zunächst ein VPC mit drei öffentlichen und drei privaten Subnetzen (je eines pro Availability Zone). Die öffentlichen Subnetze sind mit dem Tag `type=public` versehen, die privaten mit `type=private` – dieses Tagging wird vom Isovalent-Modul aktiv ausgewertet, um seine Ressourcen zu platzieren.
+Terraform initially provisions a VPC with three public and three private subnets (one per Availability Zone). The public subnets are tagged with `type=public`, the private ones with `type=private` – this tagging is actively evaluated by the Isovalent module to place its resources.
 
-**Alle Cluster-Knoten laufen in den öffentlichen Subnetzen mit öffentlicher IP-Adresse.** Das ist eine Vorgabe des zugrunde liegenden Terraform-Moduls: Der Talos-Provider spricht während Bootstrap und Konfiguration direkt über die öffentliche IP mit der Talos-API (Port 50000) jedes Knotens. Die privaten Subnetze tragen zwar die nötigen Tags, werden aktuell aber von keiner Ressource genutzt – sie dienen als Grundlage für spätere interne Load Balancer, falls Kubernetes-Services das benötigen. Ein NAT-Gateway ist deshalb bewusst nicht aktiviert.
+**All cluster nodes run in the public subnets with a public IP address.** This is a requirement of the underlying Terraform module: the Talos provider communicates directly with the Talos API (port 50000) of each node via the public IP during bootstrap and configuration. The private subnets have the necessary tags but are currently not used by any resource – they serve as a foundation for future internal load balancers, should Kubernetes services require them. A NAT gateway is therefore intentionally not activated.
 
-Die Control-Plane-Knoten laufen auf virtualisierten Nitro-Instanzen der Klasse `m7i.xlarge` – bewusst keine Bare-Metal-Instanz. Bare-Metal-Instanzen unterstützen auf AWS kein UEFI-Boot (nur Legacy BIOS), die offizielle Talos-AMI ist aber UEFI-basiert; ein `.metal`-Typ würde beim Instanzstart mit einem Boot-Mode-Fehler scheitern, bevor Nested Virtualization überhaupt zur Debatte steht. `m7i` wurde zusätzlich gezielt gewählt, weil die Familie zu den AWS-Instanztypen gehört, die grundsätzlich für die CPU-Option `cpu_options.nested_virtualization` vorgesehen sind (Details dazu in Abschnitt 3).
+The control-plane nodes run on virtualized Nitro instances of the `m7i.xlarge` class – intentionally not a bare-metal instance. Bare-metal instances on AWS do not support UEFI boot (only legacy BIOS), but the official Talos AMI is UEFI-based; a `.metal` type would fail during instance startup with a boot mode error before nested virtualization is even considered. `m7i` was additionally chosen specifically because the family belongs to the AWS instance types that are fundamentally intended for the CPU option `cpu_options.nested_virtualization` (details on this in Section 3).
 
-Ein Network Load Balancer (vom Isovalent-Modul erzeugt) dient als stabiler Endpunkt für Kubernetes-API (6443) und Talos-API (50000) über alle drei Control-Plane-Knoten hinweg. Das Cluster verzichtet auf dedizierte Worker-Knoten (`worker_groups = []`); durch Entfernen der Standard-Taints (`allow_workload_on_cp_nodes = true`) übernehmen die drei Control-Plane-Knoten zugleich die Worker-Rolle. Der AWS Cloud Controller Manager ist aktiviert (`enable_external_cloud_provider = true`, `deploy_external_cloud_provider_iam_policies = true`), wodurch Kubernetes die AWS-API für Node-Metadaten und künftige Load-Balancer-Provisionierung nutzen kann.
+A Network Load Balancer (created by the Isovalent module) serves as a stable endpoint for the Kubernetes API (6443) and Talos API (50000) across all three control-plane nodes. The cluster dispenses with dedicated worker nodes (`worker_groups = []`); by removing the standard taints (`allow_workload_on_cp_nodes = true`), the three control-plane nodes simultaneously assume the worker role. The AWS Cloud Controller Manager is activated (`enable_external_cloud_provider = true`, `deploy_external_cloud_provider_iam_policies = true`), allowing Kubernetes to use the AWS API for node metadata and future load balancer provisioning.
 
-```mermaid
-graph TD
-    Client["Client / Internet"]
-
-    subgraph AWS_Cloud["AWS Cloud – Region us-east-1"]
-        subgraph VPC["VPC 10.0.0.0/16"]
-            NLB["AWS Network Load Balancer<br/>Listener 443 → Ziel 6443 (K8s-API)<br/>Listener 50000 (Talos-API)"]
-
-            subgraph Public["Öffentliche Subnetze × 3 AZs"]
-                CP1["Node 1: m7i.xlarge<br/>Control-Plane + Worker<br/>öffentliche IP"]
-                CP2["Node 2: m7i.xlarge<br/>Control-Plane + Worker<br/>öffentliche IP"]
-                CP3["Node 3: m7i.xlarge<br/>Control-Plane + Worker<br/>öffentliche IP"]
-            end
-
-            subgraph Private["Private Subnetze × 3 AZs<br/>kein NAT-Gateway, aktuell ohne Workload"]
-                Reserved["reserviert für künftige<br/>interne Load Balancer"]
-            end
-        end
-    end
-
-    Client -->|"443 / 50000<br/>Quelle: external_source_cidrs"| NLB
-    Client -.->|"6443 / 50000 auch direkt erlaubt<br/>(gleiche Security Group)"| CP1
-    NLB --> CP1
-    NLB --> CP2
-    NLB --> CP3
-
-    CP1 -.-> KV["Nested VMs / OpenStack-Compute<br/>aktuell: KVM-Software-Emulation (TCG)"]
-    CP2 -.-> KV
-    CP3 -.-> KV
-
-    classDef aws fill:#FF9900,stroke:#232F3E,stroke-width:1px,color:#232F3E;
-    classDef node fill:#232F3E,stroke:#FF9900,stroke-width:1px,color:#ffffff;
-    classDef idle fill:#eeeeee,stroke:#999999,stroke-width:1px,color:#555555,stroke-dasharray: 5 5;
-    classDef kube fill:#326CE5,stroke:#ffffff,stroke-width:1px,color:#ffffff;
-
-    class AWS_Cloud,VPC,Public aws;
-    class CP1,CP2,CP3,NLB node;
-    class Private,Reserved idle;
-    class KV kube;
-```
-
-| Komponente | Herkunft | Rolle |
+| Component | Origin | Role |
 |---|---|---|
-| VPC + Subnetze | `vpc.tf` | Netzwerkbasis; private Subnetze aktuell ungenutzt |
-| Network Load Balancer | Isovalent-Modul | Endpoint für Kubernetes- und Talos-API |
-| 3× EC2-Instanz `m7i.xlarge` | Isovalent-Modul | Etcd, API-Server, Kubelet, KVM-Host |
-| `kvm-patch.yaml` | dieses Repository | Kernel-Module `kvm`/`kvm_intel`, Worker-Label |
-| AWS Cloud Controller Manager | Isovalent-Modul, aktiviert | Node-Metadaten, Grundlage für dynamische ELBs |
-| `scripts/install-cilium.sh` | dieses Repository | CNI-Installation nach dem Bootstrap |
-| `talosconfig` / `kubeconfig` | Terraform-Outputs | Administrativer Zugriff |
+| VPC + Subnets | `vpc.tf` | Network basis; private subnets currently unused |
+| Network Load Balancer | Isovalent module | Endpoint for Kubernetes and Talos API |
+| 3× EC2 Instance `m7i.xlarge` | Isovalent module | Etcd, API Server, Kubelet, KVM Host |
+| `kvm-patch.yaml` | this repository | Kernel modules `kvm`/`kvm_intel`, worker label |
+| AWS Cloud Controller Manager | Isovalent module, enabled | Node metadata, basis for dynamic ELBs |
+| `scripts/install-cilium.sh` | this repository | CNI installation after bootstrap |
+| `talosconfig` / `kubeconfig` | Terraform outputs | Administrative access |
 
----
 
-## 3. Bekannte Einschränkungen
+## 3. Known Limitations
 
-**Keine Hardware-beschleunigte Nested Virtualization (aktuell).** `kvm-patch.yaml` lädt die Kernel-Module `kvm`/`kvm_intel` mit den Parametern `nested=1` und `ept=1`. AWS unterstützt inzwischen echte Hardware-Nested-Virtualization auch auf virtualisierten (Nicht-Metal-)Instanzen der Familien `c7i`/`m7i`/`r7i`/`c8i`/`m8i`/`r8i` – vorausgesetzt, beim Instanz-Start wird die CPU-Option `cpu_options.nested_virtualization = enabled` gesetzt. Das hier verwendete Terraform-Modul reicht diese Option für seine Control-Plane-Instanzen derzeit nicht durch (die Schnittstelle kennt nur `instance_type`, `config_patch_files` und `tags`). Ohne diese CPU-Option bleibt KVM auf Software-Emulation (TCG) beschränkt – funktional für erste Tests, aber spürbar langsamer als echte Hardware-Virtualisierung. Um das zu schließen, müsste das Modul um einen `cpu_options`-Block erweitert werden (Fork oder Upstream-Beitrag).
+**No hardware-accelerated nested virtualization (currently).** `kvm-patch.yaml` loads the kernel modules `kvm`/`kvm_intel` with the parameters `nested=1` and `ept=1`. AWS now supports true hardware nested virtualization even on virtualized (non-metal) instances of the `c7i`/`m7i`/`r7i`/`c8i`/`m8i`/`r8i` families – provided the CPU option `cpu_options.nested_virtualization = enabled` is set during instance startup. The Terraform module used here does not currently pass this option through for its control-plane instances (the interface only knows `instance_type`, `config_patch_files`, and `tags`). Without this CPU option, KVM remains restricted to software emulation (TCG) – functional for initial tests, but noticeably slower than true hardware virtualization. To close this gap, the module would need to be extended with a `cpu_options` block (fork or upstream contribution).
 
-**Root-Volume fest auf 50 GB (gp3).** Der `control_plane`-Block des verwendeten Moduls unterstützt kein `root_block_device`-Attribut. Ein Versuch, die Root-Volume-Größe darüber zu setzen, wird von Terraforms Typsystem als nicht deklariertes Attribut abgelehnt (Validierungsfehler bei `terraform plan`, nicht stillschweigend ignoriert). Für größere Storage-Anforderungen – etwa Image-Storage für OpenStack/Yaook – empfiehlt sich vorerst ein zusätzliches, separates EBS-Volume statt eines vergrößerten Root-Volumes.
+**Root volume fixed at 50 GB (gp3).** The `control_plane` block of the module used does not support a `root_block_device` attribute. An attempt to set the root volume size through it is rejected by Terraform's type system as an undeclared attribute (validation error during `terraform plan`, not silently ignored). For larger storage requirements – such as image storage for OpenStack/Yaook – an additional, separate EBS volume is currently recommended instead of an enlarged root volume.
 
-**Kein CNI vorinstalliert.** Die Kubernetes-Netzwerkkonfiguration ist bewusst auf `cni: none` gesetzt und kube-proxy deaktiviert, damit die CNI-Wahl offenbleibt. Ohne den in Abschnitt 5 beschriebenen manuellen Installationsschritt bleiben alle Knoten dauerhaft `NotReady`.
+**No CNI pre-installed.** The Kubernetes network configuration is intentionally set to `cni: none` and kube-proxy is disabled so that the choice of CNI remains open. Without the manual installation step described in Section 5, all nodes remain permanently `NotReady`.
 
-**Kubernetes- und Talos-API sind standardmäßig weltweit erreichbar.** Der Default-Wert für `external_source_cidrs` ist `0.0.0.0/0`. In Kombination mit den öffentlichen IP-Adressen der Knoten bedeutet das: Beide APIs sind ab dem ersten `terraform apply` aus dem gesamten Internet erreichbar, bis diese Variable eingeschränkt wird (siehe Abschnitt 5.3).
+**Kubernetes and Talos API are globally accessible by default.** The default value for `external_source_cidrs` is `0.0.0.0/0`. In combination with the public IP addresses of the nodes, this means: both APIs are accessible from the entire internet from the first `terraform apply` until this variable is restricted (see Section 5.3).
 
----
+## 4. Prerequisites
 
-## 4. Voraussetzungen
+**Local tools:**
 
-**Lokale Werkzeuge:**
-
-| Tool | Zweck |
+| Tool | Purpose |
 |---|---|
-| Terraform ≥ 1.5.0 | Infrastruktur-Provisionierung |
-| `git` | Wird von `terraform init` benötigt, da das Talos-Modul per Git-URL referenziert wird |
-| AWS CLI v2 | Authentifizierung |
-| `talosctl` | Cluster-Administration ([Sidero Labs Releases](https://github.com/siderolabs/talos/releases)) |
-| `kubectl` | Kubernetes-Administration |
-| `helm` | Wird von `scripts/install-cilium.sh` vorausgesetzt |
+| Terraform ≥ 1.5.0 | Infrastructure provisioning |
+| `git` | Required by `terraform init`, as the Talos module is referenced via Git URL |
+| AWS CLI v2 | Authentication |
+| `talosctl` | Cluster administration ([Sidero Labs Releases](https://github.com/siderolabs/talos/releases)) |
+| `kubectl` | Kubernetes administration |
+| `helm` | Required by `scripts/install-cilium.sh` |
 
-**AWS-seitig:**
+**AWS-side:**
 
-- Account mit Rechten für EC2, VPC, ELB/NLB und IAM-Policy-Erstellung (für den Cloud Controller Manager).
-- Kenntnis der eigenen öffentlichen IP-Adresse für `external_source_cidrs`.
-- Für `m7i.xlarge` reichen die Standard-Service-Quotas in der Regel aus.
+- Account with permissions for EC2, VPC, ELB/NLB, and IAM policy creation (for the Cloud Controller Manager).
+- Knowledge of your own public IP address for `external_source_cidrs`.
+- For `m7i.xlarge`, the standard service quotas are usually sufficient.
 
----
+## 5. Deployment – Step by Step
 
-## 5. Deployment – Schritt für Schritt
-
-### 5.1 AWS-Zugriff einrichten
+### 5.1 Set up AWS access
 
 ```bash
-aws sso login --profile <dein-sso-profil>
-export AWS_PROFILE=<dein-sso-profil>
+aws sso login --profile <your-sso-profile>
+export AWS_PROFILE=<your-sso-profile>
 ```
 
-### 5.2 Repository klonen
+### 5.2 Clone repository
 
 ```bash
 git clone https://github.com/lanixx/talos-aws.git
 cd talos-aws
 ```
 
-### 5.3 `terraform.tfvars` prüfen
+### 5.3 Check `terraform.tfvars`
 
-Vor dem ersten `apply` die eigene IP ermitteln und `external_source_cidrs` entsprechend einschränken:
+Before the first `apply`, determine your own IP and restrict `external_source_cidrs` accordingly:
 
 ```bash
 curl -4 ifconfig.me
 ```
 
-Rückgabewert als `"<deine-IP>/32"` eintragen. **Ohne diesen Schritt bleibt die Kubernetes- und Talos-API weltweit erreichbar** (siehe Abschnitt 3). Für Kurztests kann `control_plane_count` auf `1` reduziert werden, um Kosten zu sparen.
+Enter the return value as `"<your-IP>/32"`. **Without this step, the Kubernetes and Talos API will remain globally accessible** (see Section 3). For quick tests, `control_plane_count` can be reduced to `1` to save costs.
 
-### 5.4 Terraform initialisieren und ausführen
+### 5.4 Initialize and execute Terraform
 
 ```bash
 terraform init
@@ -167,9 +120,9 @@ terraform plan
 terraform apply
 ```
 
-Das Deployment dauert erfahrungsgemäß mehrere Minuten: VPC- und Load-Balancer-Erstellung, Warten auf getaggte Subnetze, AMI-Boot und Talos-Bootstrap (etcd-Initialisierung) laufen sequenziell.
+Experience shows the deployment takes several minutes: VPC and load balancer creation, waiting for tagged subnets, AMI boot, and Talos bootstrap (etcd initialization) run sequentially.
 
-### 5.5 Zugangsdaten extrahieren
+### 5.5 Extract credentials
 
 ```bash
 terraform output -raw kubeconfig  > kubeconfig
@@ -179,139 +132,129 @@ export KUBECONFIG="$(pwd)/kubeconfig"
 export TALOSCONFIG="$(pwd)/talosconfig"
 ```
 
-### 5.6 Basis-Status prüfen
+### 5.6 Check basic status
 
 ```bash
 talosctl version
 kubectl get nodes -o wide
 ```
 
-Ein `NotReady`-Status aller Knoten ist an dieser Stelle normal und erwartet (siehe Abschnitt 3) – noch kein Fehler.
+A `NotReady` status of all nodes is normal and expected at this point (see Section 3) – not yet an error.
 
-### 5.7 CNI installieren
+### 5.7 Install CNI
 
 ```bash
 ./scripts/install-cilium.sh
 ```
 
-Das Skript zieht die Zugangsdaten selbst über `terraform output`, installiert Cilium per Helm mit den für Talos passenden Werten (u. a. `kubeProxyReplacement=true`, KubePrism auf `localhost:7445`) und wartet anschließend bis zu 5 Minuten auf bereite Knoten.
+The script retrieves the credentials itself via `terraform output`, installs Cilium via Helm with the appropriate values for Talos (including `kubeProxyReplacement=true`, KubePrism to `localhost:7445`), and then waits up to 5 minutes for ready nodes.
 
-### 5.8 Ergebnis prüfen
+### 5.8 Check result
 
 ```bash
 kubectl get nodes -o wide
 kubectl get pods -A
 ```
 
-Alle drei Knoten sollten jetzt `Ready` sein. Für den eigentlichen VM-Workload-Anwendungsfall ist ein zusätzlicher Operator nötig – KubeVirt (`kubectl apply -f https://github.com/kubevirt/kubevirt/releases/…/kubevirt-operator.yaml`) oder Yaook für OpenStack; beides ist nicht Teil dieses Repositories.
+All three nodes should now be `Ready`. For the actual VM workload use case, an additional operator is necessary – KubeVirt (`kubectl apply -f https://github.com/kubevirt/kubevirt/releases/…/kubevirt-operator.yaml`) or Yaook for OpenStack; neither is part of this repository.
 
----
+## 6. Configuration Reference
 
-## 6. Konfigurationsreferenz
-
-| Variable | Wert | Hinweis |
+| Variable | Value | Note |
 |---|---|---|
 | `aws_region` | `us-east-1` | |
 | `cluster_name` | `talos-kvm-cluster` | |
 | `talos_version` | `v1.12.9` | |
 | `kubernetes_version` | `1.33.1` | |
-| `control_plane_instance_type` | `m7i.xlarge` | Siehe Abschnitt 2/3 zur Instanztyp-Wahl |
-| `control_plane_count` | `3` | Für Kurztests auf `1` reduzierbar |
+| `control_plane_instance_type` | `m7i.xlarge` | See Section 2/3 regarding instance type choice |
+| `control_plane_count` | `3` | Can be reduced to `1` for quick tests |
 | `vpc_cidr` | `10.0.0.0/16` | |
 | `vpc_availability_zones` | `us-east-1a`, `us-east-1b`, `us-east-1c` | |
-| `vpc_public_subnets` | `10.0.1.0/24`–`10.0.3.0/24` | Hier laufen alle Knoten |
-| `vpc_private_subnets` | `10.0.11.0/24`–`10.0.13.0/24` | Ohne NAT-Gateway, aktuell ungenutzt |
-| `external_source_cidrs` | `["0.0.0.0/0"]` | **Vor Nutzung einschränken (Abschnitt 5.3)** |
-| `enable_external_cloud_provider` | `true` | Aktiviert den AWS Cloud Controller Manager |
-| `deploy_external_cloud_provider_iam_policies` | `true` | Nötige IAM-Policies dafür |
-| Root-Volume | 50 GB, gp3 (Modul-Default) | Nicht konfigurierbar, siehe Abschnitt 3 |
+| `vpc_public_subnets` | `10.0.1.0/24`–`10.0.3.0/24` | All nodes run here |
+| `vpc_private_subnets` | `10.0.11.0/24`–`10.0.13.0/24` | No NAT gateway, currently unused |
+| `external_source_cidrs` | `["0.0.0.0/0"]` | **Restrict before use (Section 5.3)** |
+| `enable_external_cloud_provider` | `true` | Activates the AWS Cloud Controller Manager |
+| `deploy_external_cloud_provider_iam_policies` | `true` | Necessary IAM policies for it |
+| Root Volume | 50 GB, gp3 (Module default) | Not configurable, see Section 3 |
 
-**Kostenrichtwert** (On-Demand, us-east-1, ohne Gewähr – aktuelle Preise auf [aws.amazon.com/ec2/pricing](https://aws.amazon.com/ec2/pricing/on-demand/) prüfen): `m7i.xlarge` liegt bei ca. **$0,09/Std.** pro Knoten, bei drei durchgehend laufenden Knoten also ca. **$195/Monat**. Nicht vergessen: `terraform destroy` nach jedem Test (Abschnitt 9).
-
----
+**Cost estimate** (On-Demand, us-east-1, without guarantee – check current prices at [aws.amazon.com/ec2/pricing](https://aws.amazon.com/ec2/pricing/on-demand/)): `m7i.xlarge` is approx. **$0.09/hr** per node, so with three continuously running nodes approx. **$195/month**. Do not forget: `terraform destroy` after each test (Section 9).
 
 ## 7. FAQ
 
-**Warum keine Bare-Metal-Instanz, wenn es doch um Nested Virtualization geht?**
-Bare-Metal-Instanzen unterstützen auf AWS kein UEFI-Boot, die offizielle Talos-AMI setzt aber UEFI voraus – der Instanzstart würde bereits an einem Boot-Mode-Fehler scheitern, bevor Nested Virtualization überhaupt relevant wird. `m7i.xlarge` unterstützt UEFI und gehört zusätzlich zu den Instanzfamilien, die AWS grundsätzlich für die CPU-Option `cpu_options.nested_virtualization` vorsieht – auch wenn diese Option aktuell noch nicht durchgereicht wird (Abschnitt 3).
+**Why no bare-metal instance if the goal is nested virtualization?**
+Bare-metal instances on AWS do not support UEFI boot, but the official Talos AMI requires UEFI – the instance startup would fail with a boot mode error before nested virtualization even becomes relevant. `m7i.xlarge` supports UEFI and additionally belongs to the instance families that AWS fundamentally intends for the CPU option `cpu_options.nested_virtualization` – even if this option is currently not passed through (Section 3).
 
-**Warum ist `worker_groups` ein leeres Array?**
-Damit das Cluster ausschließlich aus den drei Control-Plane-Knoten besteht. `allow_workload_on_cp_nodes = true` entfernt die Standard-Taints, wodurch diese Knoten zugleich als Worker fungieren; separate, zusätzliche Instanzen entfallen dadurch.
+**Why is `worker_groups` an empty array?**
+So that the cluster consists exclusively of the three control-plane nodes. `allow_workload_on_cp_nodes = true` removes the standard taints, meaning these nodes simultaneously function as workers; separate, additional instances are thereby omitted.
 
-**Welche Funktion hat der Load Balancer?**
-Er ist ein für Kubernetes-API (6443) und Talos-API (50000) zuständiger Network Load Balancer – ein stabiler, gemeinsamer Endpunkt über alle Control-Plane-Knoten, kein Sicherheitsgateway. Die Knoten haben ohnehin eigene öffentliche IP-Adressen; die eigentliche Zugriffsbeschränkung erfolgt über `external_source_cidrs`.
+**What is the function of the Load Balancer?**
+It is a Network Load Balancer responsible for the Kubernetes API (6443) and Talos API (50000) – a stable, shared endpoint across all control-plane nodes, not a security gateway. The nodes have their own public IP addresses anyway; the actual access restriction takes place via `external_source_cidrs`.
 
-**Ist der AWS Cloud Controller Manager aktiv?**
-Ja, `enable_external_cloud_provider` und `deploy_external_cloud_provider_iam_policies` sind beide gesetzt.
+**Is the AWS Cloud Controller Manager active?**
+Yes, `enable_external_cloud_provider` and `deploy_external_cloud_provider_iam_policies` are both set.
 
-**Muss ich ein CNI manuell installieren?**
-Ja, per `./scripts/install-cilium.sh` nach dem ersten erfolgreichen `terraform apply` (Abschnitt 5.7).
+**Do I have to install a CNI manually?**
+Yes, via `./scripts/install-cilium.sh` after the first successful `terraform apply` (Section 5.7).
 
-**Was kostet ein Test-Deployment ungefähr?**
-Rund $195/Monat bei durchgehendem Betrieb aller drei Knoten (Abschnitt 6) – deutlich abhängig davon, wie lange der Cluster tatsächlich läuft.
+**What does a test deployment roughly cost?**
+Around $195/month for continuous operation of all three nodes (Section 6) – significantly dependent on how long the cluster actually runs.
 
-**Gibt es eine Lizenz für dieses Repository?**
-Das Repository enthält keine `LICENSE`-Datei.
-
----
+**Is there a license for this repository?**
+The repository does not contain a `LICENSE` file.
 
 ## 8. Troubleshooting
 
-**`terraform apply` scheitert mit einem Boot-Mode-/UEFI-Fehler**
-Tritt auf, wenn `control_plane_instance_type` auf einen `.metal`-Typ geändert wird. Bare-Metal-Instanzen unterstützen kein UEFI, die Talos-AMI aber schon (siehe Abschnitt 2/3). Bei einem virtualisierten Typ wie `m7i.xlarge` bleibend.
+**`terraform apply` fails with a boot mode/UEFI error**
+Occurs if `control_plane_instance_type` is changed to a `.metal` type. Bare-metal instances do not support UEFI, but the Talos AMI does (see Section 2/3). Stick with a virtualized type like `m7i.xlarge`.
 
-**`terraform apply` hängt beim Warten auf Subnetze**
-Das zugrunde liegende Modul wartet auf drei Subnetze mit dem Tag `type=public` in der VPC. Ursache ist praktisch immer ein Tagging-Problem in `vpc.tf`. Prüfen mit:
+**`terraform apply` hangs while waiting for subnets**
+The underlying module waits for three subnets with the tag `type=public` in the VPC. The cause is practically always a tagging problem in `vpc.tf`. Check with:
 
 ```bash
 aws ec2 describe-subnets --filters Name=vpc-id,Values=<vpc-id> Name=tag:type,Values=public
 ```
 
-**Knoten bleiben nach dem Start dauerhaft `NotReady`**
-In den meisten Fällen fehlt der CNI-Installationsschritt – `./scripts/install-cilium.sh` ausführen (Abschnitt 5.7). `kubectl describe node <node>` zeigt in diesem Fall typischerweise eine Bedingung wie `NetworkPluginNotReady`.
+**Nodes remain permanently `NotReady` after startup**
+In most cases, the CNI installation step is missing – execute `./scripts/install-cilium.sh` (Section 5.7). `kubectl describe node <node>` typically shows a condition like `NetworkPluginNotReady` in this case.
 
-**`install-cilium.sh` bricht mit „helm ist nicht installiert" ab**
-`helm` lokal installieren: [helm.sh/docs/intro/install](https://helm.sh/docs/intro/install/).
+**`install-cilium.sh` aborts with "helm is not installed"**
+Install `helm` locally: [helm.sh/docs/intro/install](https://helm.sh/docs/intro/install/).
 
-**`terraform output -raw kubeconfig_pfad` oder `talosconfig_pfad` liefert einen Fehler**
-Diese Outputs existieren nicht. Für den Zugriff auf die Zugangsdaten `terraform output -raw kubeconfig` bzw. `terraform output -raw talosconfig` verwenden (liefert den Rohinhalt, keinen Dateipfad) und wie in Abschnitt 5.5 beschrieben in eine Datei umleiten.
+**`terraform output -raw kubeconfig_pfad` or `talosconfig_pfad` returns an error**
+These outputs do not exist. To access the credentials, use `terraform output -raw kubeconfig` or `terraform output -raw talosconfig` (returns the raw content, not a file path) and redirect it to a file as described in Section 5.5.
 
-**Terraform-Validierungsfehler zu `config_patches`**
-Das Modul verwaltet Cluster-Rollen autonom. Referenzierte Patch-Dateien dürfen deshalb keine Scheduling-Parameter auf Cluster-Ebene enthalten, sondern müssen sich auf den `machine`-Block beschränken – wie in `kvm-patch.yaml` bereits umgesetzt (Kernel-Module, `nested=1`/`ept=1`, Worker-Label).
+**Terraform validation errors regarding `config_patches`**
+The module manages cluster roles autonomously. Referenced patch files must therefore not contain scheduling parameters at the cluster level, but must be limited to the `machine` block – as already implemented in `kvm-patch.yaml` (kernel modules, `nested=1`/`ept=1`, worker label).
 
-**Terraform-Validierungsfehler beim Setzen von `root_block_device`**
-Der `control_plane`-Block dieses Moduls kennt dieses Attribut nicht (nur `instance_type`, `config_patch_files`, `tags`). Für eine größere Root-Disk ist aktuell kein direkter Weg über dieses Modul vorgesehen (siehe Abschnitt 3).
+**Terraform validation error when setting `root_block_device`**
+The `control_plane` block of this module does not know this attribute (only `instance_type`, `config_patch_files`, `tags`). There is currently no direct path provided via this module for a larger root disk (see Section 3).
 
-**`terraform destroy` bleibt hängen bzw. die VPC lässt sich nicht löschen**
-Wurden Kubernetes-Services vom Typ `LoadBalancer` angelegt, erzeugt der Cloud Controller Manager dafür ELBs außerhalb des Terraform-States. Vor `terraform destroy` alle solchen Services löschen und kurz warten, bis AWS die zugehörigen Load Balancer entfernt hat:
+**`terraform destroy` hangs or the VPC cannot be deleted**
+If Kubernetes services of type `LoadBalancer` were created, the Cloud Controller Manager generates ELBs for them outside of the Terraform state. Before `terraform destroy`, delete all such services and wait briefly until AWS has removed the associated load balancers:
 
 ```bash
 kubectl get svc -A | grep LoadBalancer
 kubectl delete svc <name> -n <namespace>
 ```
 
----
-
-## 9. Cluster-Abbau
+## 9. Cluster Teardown
 
 ```bash
-# Vorher: alle Kubernetes-Services vom Typ LoadBalancer löschen
+# Beforehand: delete all Kubernetes services of type LoadBalancer
 kubectl get svc -A | grep LoadBalancer
 kubectl delete svc <name> -n <namespace>
 
 terraform destroy
 ```
 
-Im Anschluss über die AWS-Konsole prüfen (EC2-Instanzen, NLB, EIPs), ob alle kostenpflichtigen Ressourcen tatsächlich entfernt wurden.
+Afterwards, check via the AWS Console (EC2 instances, NLB, EIPs) whether all chargeable resources have actually been removed.
 
----
-
-## 10. Weiterführende Links
+## 10. Further Links
 
 - Repository: [github.com/lanixx/talos-aws](https://github.com/lanixx/talos-aws)
-- Zugrunde liegendes Terraform-Modul: [github.com/isovalent/terraform-aws-talos](https://github.com/isovalent/terraform-aws-talos)
-- AWS – Boot-Modi von Instanztypen: [docs.aws.amazon.com/AWSEC2/latest/UserGuide/instance-type-boot-mode.html](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instance-type-boot-mode.html)
-- AWS – Nested Virtualization auf virtualisierten Instanzen: [docs.aws.amazon.com/AWSEC2/latest/UserGuide/amazon-ec2-nested-virtualization.html](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/amazon-ec2-nested-virtualization.html)
+- Underlying Terraform module: [github.com/isovalent/terraform-aws-talos](https://github.com/isovalent/terraform-aws-talos)
+- AWS – Boot modes of instance types: [docs.aws.amazon.com/AWSEC2/latest/UserGuide/instance-type-boot-mode.html](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instance-type-boot-mode.html)
+- AWS – Nested virtualization on virtualized instances: [docs.aws.amazon.com/AWSEC2/latest/UserGuide/amazon-ec2-nested-virtualization.html](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/amazon-ec2-nested-virtualization.html)
 - Talos + Cilium: [docs.siderolabs.com/kubernetes-guides/cni/deploying-cilium](https://docs.siderolabs.com/kubernetes-guides/cni/deploying-cilium)
 - KubeVirt: [kubevirt.io](https://kubevirt.io/)
-- AWS EC2 On-Demand-Preise: [aws.amazon.com/ec2/pricing/on-demand](https://aws.amazon.com/ec2/pricing/on-demand/)
+- AWS EC2 On-Demand pricing: [aws.amazon.com/ec2/pricing/on-demand](https://aws.amazon.com/ec2/pricing/on-demand/)
