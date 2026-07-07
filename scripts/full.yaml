@@ -1,38 +1,115 @@
+# =============================================================================
+# Yaook OpenStack PoC – "KVM per Horizon-UI"
+# =============================================================================
+# ACHTUNG: Beispielcharakter. Nicht produktiv einsetzen. An Umgebung anpassen.
+#
+# Reihenfolge / Voraussetzungen:
+#   1. cert-manager installiert
+#   2. Yaook-Operator(en) installiert
+#   3. Namespace-PodSecurity = privileged VOR dem Deploy (siehe unten – behebt
+#      die FailedCreate/SYS_NICE/NET_ADMIN/hostPath-Fehler; muss stehen, BEVOR
+#      der erste DB-Pod initialisiert, sonst safe_to_bootstrap-Falle)
+#
+# Storage: reines local-path. Glance nutzt File-Backend (kein Ceph). Cinder ist
+# bewusst NICHT enthalten -> Instanzen booten ephemer (Image -> lokale Disk).
+# Fuer "Volume anlegen / boot from volume" spaeter Ceph + Cinder nachruesten.
+#
+# Nach dem Rollout (kein CR, via CLI/Horizon):
+#   - Admin-Creds:   yaookctl -n default cr credentials keystone keystone
+#   - Glance-Image:  openstack image create ... (z.B. cirros)
+#   - Flavor:        openstack flavor create m1.tiny --ram 512 --disk 1 --vcpus 1
+#   - Provider-Netz: openstack network create --provider-physical-network physnet1 \
+#                      --provider-network-type flat provider-net
+#                    openstack subnet create ... (danach Instanz in Horizon booten)
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# 0) PodSecurity-Fix  (NEU) – behebt alle FailedCreate-Events
+# -----------------------------------------------------------------------------
+# Talos erzwingt clusterweit PSA "baseline" (nur kube-system ausgenommen).
+# Namespace-Labels haben Vorrang vor dem clusterweiten Default -> hier auf
+# "privileged" heben. Yaook-Workloads (Galera=SYS_NICE, OVN=NET_ADMIN+hostPath,
+# Nova-Compute=libvirt/KVM) brauchen privileged; das ist by design.
+# 'kubectl apply' patcht die Labels in den bestehenden default-Namespace.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: default
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/warn: privileged
+    pod-security.kubernetes.io/audit: privileged
 ---
+# -----------------------------------------------------------------------------
+# 1) cert-manager: Self-signed CA + interner Issuer  (unverändert)
+# -----------------------------------------------------------------------------
 apiVersion: cert-manager.io/v1
 kind: Issuer
 metadata:
-    name: selfsigned-issuer
+  name: selfsigned-issuer
 spec:
-    selfSigned: {}
+  selfSigned: {}
 ---
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
-    name: yaook-internal-ca
+  name: yaook-internal-ca
 spec:
-    isCA: true
-    privateKey:
-        rotationPolicy: Never
-    commonName: yaook-internal-ca
-    secretName: yaook-internal-ca
-    issuerRef:
-        name: selfsigned-issuer
+  isCA: true
+  privateKey:
+    rotationPolicy: Never
+  commonName: yaook-internal-ca
+  secretName: yaook-internal-ca
+  issuerRef:
+    name: selfsigned-issuer
 ---
 apiVersion: cert-manager.io/v1
 kind: Issuer
 metadata:
-    name: yaook-internal
+  name: yaook-internal
 spec:
-    ca:
-        secretName: yaook-internal-ca
+  ca:
+    secretName: yaook-internal-ca
 ---
-# NOTE: This file serves as an example only!
-# It demonstrates a subset of the API features which are available and
-# is NOT FIT FOR PRODUCTIVE USE. You need to adapt them to your
-# specific environment, needs and scale.
-# DO NOT DEPLOY THIS FILE WITH THE EXPECTATION THAT YOU WILL GET A
-# YAOOK DEPLOYMENT FIT FOR ANY USE EXCEPT LOOKING AT IT.
+# -----------------------------------------------------------------------------
+# 2) Keystone  (unverändert)
+# -----------------------------------------------------------------------------
+apiVersion: yaook.cloud/v1
+kind: KeystoneDeployment
+metadata:
+  name: keystone
+  namespace: default
+spec:
+  database:
+    replicas: 1
+    proxy:
+      replicas: 1
+    backup:
+      schedule: "0 * * * *"
+    storageClassName: local-path
+    storageSize: 2Gi
+  memcached:
+    replicas: 1
+  api:
+    ingress:
+      fqdn: "keystone.yaook.cloud"
+      port: 32443
+    replicas: 1
+  keystoneConfig:
+    token:
+      expiration: 86400
+  region:
+    name: YaookRegion
+  issuerRef:
+    name: yaook-internal
+  targetRelease: "2025.1"
+---
+# -----------------------------------------------------------------------------
+# 3) Glance  (File-Backend auf local-path – KEIN Ceph)
+# -----------------------------------------------------------------------------
+# PoC ohne Ceph: File-Backend auf local-path-PVC. Single glance-api (replicas: 1)
+# ist mit RWO ok; mehrere Replicas braeuchten RWX (NFS o.ae.).
 apiVersion: yaook.cloud/v1
 kind: GlanceDeployment
 metadata:
@@ -56,86 +133,26 @@ spec:
     ingress:
       fqdn: "glance.yaook.cloud"
       port: 32443
-  glanceConfig: {}
+  glanceConfig:
+    glance_store:
+      default_store: "file"
   backends:
-    ceph:
-      keyringReference: rook-ceph-client-glance
-      keyringUsername: glance
-      keyringPoolname: glance-pool
-      cephConfig:
-        global:
-          "mon_host": "rook-ceph-mon-a.rook-ceph:6789,rook-ceph-mon-b.rook-ceph:6789,rook-ceph-mon-c.rook-ceph:6789"
+    file:
+      storageSize: 50Gi
+      storageClassName: local-path
   region:
     name: YaookRegion
   issuerRef:
     name: yaook-internal
   targetRelease: "2025.1"
 ---
-# NOTE: This file serves as an example only!
-# It demonstrates a subset of the API features which are available and
-# is NOT FIT FOR PRODUCTIVE USE. You need to adapt them to your
-# specific environment, needs and scale.
-# DO NOT DEPLOY THIS FILE WITH THE EXPECTATION THAT YOU WILL GET A
-# YAOOK DEPLOYMENT FIT FOR ANY USE EXCEPT LOOKING AT IT.
-apiVersion: yaook.cloud/v1
-kind: HorizonDeployment
-metadata:
-  name: horizon
-  namespace: default
-spec:
-  keystoneRef:
-    name: keystone
-  replicas: 1
-  ingress:
-    fqdn: "horizon.yaook.cloud"
-    port: 32443
-  issuerRef:
-    name: yaook-internal
-  targetRelease: "2025.1"
----
-# NOTE: This file serves as an example only!
-# It demonstrates a subset of the API features which are available and
-# is NOT FIT FOR PRODUCTIVE USE. You need to adapt them to your
-# specific environment, needs and scale.
-# DO NOT DEPLOY THIS FILE WITH THE EXPECTATION THAT YOU WILL GET A
-# YAOOK DEPLOYMENT FIT FOR ANY USE EXCEPT LOOKING AT IT.
-apiVersion: yaook.cloud/v1
-kind: KeystoneDeployment
-metadata:
-  name: keystone
-  namespace: default
-spec:
-  database:
-    replicas: 1
-    proxy:
-      replicas: 1
-    backup:
-      schedule: "0 * * * *"
-    # enable this later
-    storageClassName: local-path
-    storageSize: 2Gi
-  memcached:
-    replicas: 1
-  api:
-    ingress:
-      fqdn: "keystone.yaook.cloud"
-      port: 32443
-    replicas: 1
-  keystoneConfig:
-    token:
-      expiration: 86400
-  region:
-    name: YaookRegion
-  issuerRef:
-    name: yaook-internal
-  targetRelease: "2025.1"
----
-# NOTE: This file serves as an example only!
-# It demonstrates a subset of the API features which are available and
-# is NOT FIT FOR PRODUCTIVE USE. You need to adapt them to your
-# specific environment, needs and scale.
-# DO NOT DEPLOY THIS FILE WITH THE EXPECTATION THAT YOU WILL GET A
-# YAOOK DEPLOYMENT FIT FOR ANY USE EXCEPT LOOKING AT IT.
+# -----------------------------------------------------------------------------
+# 4) Neutron (OVN, flat physnet1)  (unverändert + Hinweis)
+# -----------------------------------------------------------------------------
+# WICHTIG fuer VM-Netzanbindung: unter setup.ovn.controller.configTemplates ist
+# aktuell KEIN Bridge-Mapping gesetzt. Fuer ein flat-Provider-Netz auf physnet1
+# muss der OVN-Controller-Node 'ovn-bridge-mappings=physnet1:br-ex' kennen und
+# 'br-ex' am Host existieren. Sonst bekommt keine Instanz Konnektivitaet.
 apiVersion: yaook.cloud/v1
 kind: NeutronDeployment
 metadata:
@@ -192,15 +209,20 @@ spec:
         storageClassName: local-path
         storageSize: 2Gi
       controller:
+        # z.B. Bridge-Mapping fuer physnet1 hier ergaenzen:
+        # configTemplates:
+        #   - nodeSelectors:
+        #       - matchLabels: {}
+        #     ovnControllerConfig:
+        #       ovn-bridge-mappings: "physnet1:br-ex"
         configTemplates: []
   targetRelease: "2025.1"
 ---
-# NOTE: This file serves as an example only!
-# It demonstrates a subset of the API features which are available and
-# is NOT FIT FOR PRODUCTIVE USE. You need to adapt them to your
-# specific environment, needs and scale.
-# DO NOT DEPLOY THIS FILE WITH THE EXPECTATION THAT YOU WILL GET A
-# YAOOK DEPLOYMENT FIT FOR ANY USE EXCEPT LOOKING AT IT.
+# -----------------------------------------------------------------------------
+# 5) Nova  (unverändert + KVM-Hinweis)
+# -----------------------------------------------------------------------------
+# virt_type: qemu = Software-Emulation (langsam, laeuft ueberall).
+# Fuer echtes KVM: virt_type: kvm + /dev/kvm am Node + Nested-Virt aktiv.
 apiVersion: yaook.cloud/v1
 kind: NovaDeployment
 metadata:
@@ -281,10 +303,29 @@ spec:
           keystone_authtoken:
             os_region_name: YaookRegion
           libvirt:
-            virt_type: qemu
+            virt_type: qemu   # -> "kvm" fuer HW-Beschleunigung (s. Hinweis)
   issuerRef:
     name: yaook-internal
   region:
     name: YaookRegion
   databaseCleanup:
     schedule: "0 0 * * *"
+---
+# -----------------------------------------------------------------------------
+# 6) Horizon  (unverändert – UI)
+# -----------------------------------------------------------------------------
+apiVersion: yaook.cloud/v1
+kind: HorizonDeployment
+metadata:
+  name: horizon
+  namespace: default
+spec:
+  keystoneRef:
+    name: keystone
+  replicas: 1
+  ingress:
+    fqdn: "horizon.yaook.cloud"
+    port: 32443
+  issuerRef:
+    name: yaook-internal
+  targetRelease: "2025.1"

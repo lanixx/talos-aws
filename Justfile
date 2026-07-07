@@ -18,7 +18,7 @@ export TALOSCONFIG := justfile_directory() + "/talosconfig"
 default: deploy
 
 # Kompletter Durchlauf: Terraform, Configs, Cilium, TLS-Fix, Cleanup, Verify
-deploy: apply configs cilium fix-metrics-server cleanup-approver verify
+deploy: apply configs scripts fix-metrics-server cleanup-approver verify
     @echo "🎉 Fertig - Cluster läuft, Kubelet-TLS-Kette repariert."
 
 
@@ -31,7 +31,7 @@ plan: init
     terraform plan
 
 apply: init
-    terraform apply -auto-approve
+    terraform apply -auto-approve || terraform apply -auto-approve
 
 # --- Cluster-Zugriff & CNI ---
 
@@ -40,9 +40,10 @@ configs:
     terraform output -raw talosconfig > talosconfig
     @echo "✅ kubeconfig und talosconfig geschrieben."
 
-cilium:
+scripts:
+    sleep 60
     bash scripts/install-cilium.sh
-    sleep 15
+    bash scripts/install-openstack.sh
 
 # --- Kubelet-TLS-Fix (selbstsignierte Serving-Zertifikate statt Approver) ---
 
