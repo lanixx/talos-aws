@@ -1,191 +1,290 @@
-apiVersion: yaook.cloud/v1
-kind: KeystoneDeployment
-metadata:
-  name: keystone
-  namespace: yaook
-spec:
-  targetRelease: "2023.2"
-  region: RegionOne
-  database:
-    replicas: 1
-    storageClassName: local-path
-    storageSize: 10Gi
-    proxy: {}
-    backup:
-      schedule: "0 0 * * *"
-  memcached: {}
-  issuerRef:
-    name: yaook-internal
-  api:
-    replicas: 1
-    ingress:
-      fqdn: keystone.yaook.cloud
-      port: 443
-  keystoneConfig:
-    DEFAULT:
-      debug: "True"
-    token:
-      provider: fernet
 ---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+    name: selfsigned-issuer
+spec:
+    selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+    name: yaook-internal-ca
+spec:
+    isCA: true
+    privateKey:
+        rotationPolicy: Never
+    commonName: yaook-internal-ca
+    secretName: yaook-internal-ca
+    issuerRef:
+        name: selfsigned-issuer
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+    name: yaook-internal
+spec:
+    ca:
+        secretName: yaook-internal-ca
+---
+# NOTE: This file serves as an example only!
+# It demonstrates a subset of the API features which are available and
+# is NOT FIT FOR PRODUCTIVE USE. You need to adapt them to your
+# specific environment, needs and scale.
+# DO NOT DEPLOY THIS FILE WITH THE EXPECTATION THAT YOU WILL GET A
+# YAOOK DEPLOYMENT FIT FOR ANY USE EXCEPT LOOKING AT IT.
 apiVersion: yaook.cloud/v1
 kind: GlanceDeployment
 metadata:
   name: glance
-  namespace: yaook
+  namespace: default
 spec:
-  targetRelease: "2023.2"
-  region: RegionOne
   keystoneRef:
     name: keystone
   database:
     replicas: 1
-    storageClassName: local-path
-    storageSize: 10Gi
-    proxy: {}
+    proxy:
+      replicas: 1
     backup:
-      schedule: "0 0 * * *"
-  memcached: {}
-  issuerRef:
-    name: yaook-internal
+      schedule: "0 * * * *"
+    storageClassName: local-path
+    storageSize: 2Gi
+  memcached:
+    replicas: 1
   api:
     replicas: 1
     ingress:
-      fqdn: glance.yaook.cloud
-      port: 443
+      fqdn: "glance.yaook.cloud"
+      port: 32443
+  glanceConfig: {}
   backends:
     ceph:
       keyringReference: rook-ceph-client-glance
       keyringUsername: glance
-      keyringPoolname: images
-  glanceConfig:
-    glance_store:
-      default_backend: ceph
+      keyringPoolname: glance-pool
+      cephConfig:
+        global:
+          "mon_host": "rook-ceph-mon-a.rook-ceph:6789,rook-ceph-mon-b.rook-ceph:6789,rook-ceph-mon-c.rook-ceph:6789"
+  region:
+    name: YaookRegion
+  issuerRef:
+    name: yaook-internal
+  targetRelease: "2025.1"
 ---
+# NOTE: This file serves as an example only!
+# It demonstrates a subset of the API features which are available and
+# is NOT FIT FOR PRODUCTIVE USE. You need to adapt them to your
+# specific environment, needs and scale.
+# DO NOT DEPLOY THIS FILE WITH THE EXPECTATION THAT YOU WILL GET A
+# YAOOK DEPLOYMENT FIT FOR ANY USE EXCEPT LOOKING AT IT.
+apiVersion: yaook.cloud/v1
+kind: HorizonDeployment
+metadata:
+  name: horizon
+  namespace: default
+spec:
+  keystoneRef:
+    name: keystone
+  replicas: 1
+  ingress:
+    fqdn: "horizon.yaook.cloud"
+    port: 32443
+  issuerRef:
+    name: yaook-internal
+  targetRelease: "2025.1"
+---
+# NOTE: This file serves as an example only!
+# It demonstrates a subset of the API features which are available and
+# is NOT FIT FOR PRODUCTIVE USE. You need to adapt them to your
+# specific environment, needs and scale.
+# DO NOT DEPLOY THIS FILE WITH THE EXPECTATION THAT YOU WILL GET A
+# YAOOK DEPLOYMENT FIT FOR ANY USE EXCEPT LOOKING AT IT.
+apiVersion: yaook.cloud/v1
+kind: KeystoneDeployment
+metadata:
+  name: keystone
+  namespace: default
+spec:
+  database:
+    replicas: 1
+    proxy:
+      replicas: 1
+    backup:
+      schedule: "0 * * * *"
+    # enable this later
+    storageClassName: local-path
+    storageSize: 2Gi
+  memcached:
+    replicas: 1
+  api:
+    ingress:
+      fqdn: "keystone.yaook.cloud"
+      port: 32443
+    replicas: 1
+  keystoneConfig:
+    token:
+      expiration: 86400
+  region:
+    name: YaookRegion
+  issuerRef:
+    name: yaook-internal
+  targetRelease: "2025.1"
+---
+# NOTE: This file serves as an example only!
+# It demonstrates a subset of the API features which are available and
+# is NOT FIT FOR PRODUCTIVE USE. You need to adapt them to your
+# specific environment, needs and scale.
+# DO NOT DEPLOY THIS FILE WITH THE EXPECTATION THAT YOU WILL GET A
+# YAOOK DEPLOYMENT FIT FOR ANY USE EXCEPT LOOKING AT IT.
+apiVersion: yaook.cloud/v1
+kind: NeutronDeployment
+metadata:
+  name: neutron
+  namespace: default
+spec:
+  api:
+    ingress:
+      fqdn: "neutron.yaook.cloud"
+      port: 32443
+    replicas: 1
+  database:
+    backup:
+      schedule: "0 * * * *"
+    proxy:
+      replicas: 1
+    replicas: 1
+    storageClassName: local-path
+    storageSize: 2Gi
+  issuerRef:
+    name: yaook-internal
+  keystoneRef:
+    name: keystone
+  messageQueue:
+    replicas: 1
+    storageClassName: local-path
+    storageSize: 2Gi
+  memcached:
+    replicas: 1
+  neutronConfig: {}
+  neutronML2Config:
+    ml2_type_flat:
+      flat_networks:
+      - physnet1
+  novaRef:
+    name: nova
+  region:
+    name: YaookRegion
+  setup:
+    ovn:
+      northboundOVSDB:
+        replicas: 1
+        backup:
+          schedule: 0 12 * * *
+        storageClassName: local-path
+        storageSize: 2Gi
+      northd: {}
+      southboundOVSDB:
+        ovnRelay:
+          replicas: 1
+        replicas: 1
+        backup:
+          schedule: 0 12 * * *
+        storageClassName: local-path
+        storageSize: 2Gi
+      controller:
+        configTemplates: []
+  targetRelease: "2025.1"
+---
+# NOTE: This file serves as an example only!
+# It demonstrates a subset of the API features which are available and
+# is NOT FIT FOR PRODUCTIVE USE. You need to adapt them to your
+# specific environment, needs and scale.
+# DO NOT DEPLOY THIS FILE WITH THE EXPECTATION THAT YOU WILL GET A
+# YAOOK DEPLOYMENT FIT FOR ANY USE EXCEPT LOOKING AT IT.
 apiVersion: yaook.cloud/v1
 kind: NovaDeployment
 metadata:
   name: nova
-  namespace: yaook
+  namespace: default
 spec:
-  targetRelease: "2023.2"
-  region: RegionOne
   keystoneRef:
     name: keystone
-  issuerRef:
-    name: yaook-internal
   database:
     api:
       replicas: 1
-      storageClassName: local-path
-      storageSize: 10Gi
-      proxy: {}
+      proxy:
+        replicas: 1
       backup:
-        schedule: "0 0 * * *"
+        schedule: "0 * * * *"
+      storageClassName: local-path
+      storageSize: 2Gi
+    placement:
+      replicas: 1
+      proxy:
+        replicas: 1
+      backup:
+        schedule: "0 * * * *"
+      storageClassName: local-path
+      storageSize: 2Gi
     cell0:
       replicas: 1
-      storageClassName: local-path
-      storageSize: 10Gi
-      proxy: {}
+      proxy:
+        replicas: 1
       backup:
-        schedule: "0 0 * * *"
+        schedule: "0 * * * *"
+      storageClassName: local-path
+      storageSize: 2Gi
+    cell1:
+      replicas: 1
+      proxy:
+        replicas: 1
+      backup:
+        schedule: "0 * * * *"
+      storageClassName: local-path
+      storageSize: 2Gi
+  eviction: {}
+  messageQueue:
     cell1:
       replicas: 1
       storageClassName: local-path
-      storageSize: 10Gi
-      proxy: {}
-      backup:
-        schedule: "0 0 * * *"
-    placement:
-      replicas: 1
-      storageClassName: local-path
-      storageSize: 10Gi
-      proxy: {}
-      backup:
-        schedule: "0 0 * * *"
-  memcached: {}
-  messageQueue: {}
-  metadata: {}
-  vnc: {}
-  databaseCleanup:
-    schedule: "0 0 * * *"
-  eviction: {}
+      storageSize: 2Gi
+  memcached:
+    replicas: 1
   api:
     replicas: 1
     ingress:
-      fqdn: nova.yaook.cloud
-      port: 443
-  scheduler:
-    replicas: 1
+      fqdn: "nova.yaook.cloud"
+      port: 32443
   conductor:
     replicas: 1
   placement:
     replicas: 1
     ingress:
-      fqdn: placement.yaook.cloud
-      port: 443
-  novaConfig:
-    DEFAULT:
-      debug: "True"
----
-apiVersion: yaook.cloud/v1
-kind: NeutronDeployment
-metadata:
-  name: neutron
-  namespace: yaook
-spec:
-  targetRelease: "2023.2"
-  region: RegionOne
-  keystoneRef:
-    name: keystone
-  novaRef:
-    name: nova
-  issuerRef:
-    name: yaook-internal
-  database:
+      fqdn: "placement.yaook.cloud"
+      port: 32443
+  scheduler:
     replicas: 1
-    storageClassName: local-path
-    storageSize: 10Gi
-    proxy: {}
-    backup:
-      schedule: "0 0 * * *"
-  memcached: {}
-  messageQueue: {}
-  neutronML2Config: {}
-  api:
-    replicas: 1
+  vnc:
     ingress:
-      fqdn: neutron.yaook.cloud
-      port: 443
-  setup:
-    ovn:
-      controller: {}
-      northboundOVSDB:
-        replicas: 1
-        backup:
-          schedule: "0 0 * * *"
-      southboundOVSDB:
-        replicas: 1
-        backup:
-          schedule: "0 0 * * *"
-        ovnRelay: {}
-      northd:
-        replicas: 1
-  neutronConfig:
-    DEFAULT:
-      debug: "True"
----
-apiVersion: yaook.cloud/v1
-kind: HorizonDeployment
-metadata:
-  name: horizon
-  namespace: yaook
-spec:
-  targetRelease: "2023.2"
-  keystoneRef:
-    name: keystone
+      fqdn: vnc.yaook.cloud
+      port: 32443
+    replicas: 1
+  metadata:
+    replicas: 1
+  targetRelease: "2025.1"
+  novaConfig: {}
+  compute:
+    configTemplates:
+      - nodeSelectors:
+          - matchLabels: {}
+        novaComputeConfig:
+          keystone_authtoken:
+            os_region_name: YaookRegion
+          libvirt:
+            virt_type: qemu
   issuerRef:
     name: yaook-internal
-  replicas: 1
-  ingress:
-    fqdn: horizon.yaook.cloud
-    port: 443
+  region:
+    name: YaookRegion
+  databaseCleanup:
+    schedule: "0 0 * * *"
