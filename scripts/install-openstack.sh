@@ -13,8 +13,6 @@ kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisione
 kubectl patch storageclass local-path \
   -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
 
-kubectl create namespace $YAOOK_OP_NAMESPACE
-
 kubectl label namespace local-path-storage \
   pod-security.kubernetes.io/enforce=privileged \
   pod-security.kubernetes.io/warn=privileged \
@@ -28,7 +26,7 @@ kubectl label namespace default \
   pod-security.kubernetes.io/audit=privileged \
   --overwrite
 
-kubectl label namespace yaook \
+kubectl label namespace $YAOOK_OP_NAMESPACE \
   pod-security.kubernetes.io/enforce=privileged \
   pod-security.kubernetes.io/enforce-version=latest \
   pod-security.kubernetes.io/warn=privileged \
