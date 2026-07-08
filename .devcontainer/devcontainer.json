@@ -1,0 +1,62 @@
+{
+  "name": "talos-aws",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "args": {
+      // Für reproduzierbare Builds auf einen Commit/Tag setzen (statt "devel").
+      "YAOOKCTL_REF": "devel"
+    }
+  },
+
+  // Standard-Tools über offizielle Features (talosctl/just/jq/openssl -> Dockerfile).
+  "features": {
+    "ghcr.io/devcontainers/features/aws-cli:1": {
+      "version": "latest"
+    },
+    "ghcr.io/devcontainers/features/terraform:1": {
+      // README verlangt >= 1.5.0; aws-Provider ~> 6.0 profitiert von einer aktuellen Version.
+      "version": "latest"
+    },
+    "ghcr.io/devcontainers/features/kubectl-helm-minikube:1": {
+      "version": "1.33.1",   // kubectl passend zu kubernetes_version in terraform.tfvars
+      "helm": "latest",
+      "minikube": "none"
+    }
+  },
+
+  // Stellt sicher, dass der AWS-Mount-Quellordner auf dem Host existiert,
+  // bevor der Container startet (sonst schlägt der Bind-Mount fehl).
+  "initializeCommand": "mkdir -p ${localEnv:HOME}/.aws",
+
+  // Lokale AWS-Credentials / SSO-Token-Cache in den Container spiegeln,
+  // damit `aws sso login` und `export AWS_PROFILE=...` funktionieren.
+  // Bei GitHub Codespaces greift stattdessen die Codespaces-Secrets-/OIDC-Logik –
+  // diesen Mount dann entfernen oder ignorieren.
+  "mounts": [
+    "source=${localEnv:HOME}/.aws,target=/home/vscode/.aws,type=bind,consistency=cached"
+  ],
+
+  // Der Justfile exportiert KUBECONFIG/TALOSCONFIG selbst; hier zusätzlich gesetzt,
+  // damit ad-hoc `kubectl`/`talosctl` im Terminal sofort das Cluster-Config nutzen.
+  "remoteEnv": {
+    "KUBECONFIG": "${containerWorkspaceFolder}/kubeconfig",
+    "TALOSCONFIG": "${containerWorkspaceFolder}/talosconfig",
+    "AWS_PROFILE": "${localEnv:AWS_PROFILE}"
+  },
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "hashicorp.terraform",
+        "redhat.vscode-yaml",
+        "ms-kubernetes-tools.vscode-kubernetes-tools",
+        "ms-azuretools.vscode-containers"
+      ]
+    }
+  },
+
+  // Nach dem Build kurz die komplette Toolchain verifizieren.
+  "postCreateCommand": "terraform version && aws --version && kubectl version --client && helm version --short && talosctl version --client && just --version && yaookctl --help >/dev/null && echo 'yaookctl OK'",
+
+  "remoteUser": "vscode"
+}
