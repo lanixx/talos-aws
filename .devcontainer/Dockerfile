@@ -24,7 +24,7 @@ ARG TALOSCTL_VERSION=v1.12.9
 # curl und git sind im Basis-Image bereits vorhanden.
 RUN apt-get update \
  && export DEBIAN_FRONTEND=noninteractive \
- && apt-get install -y --no-install-recommends jq openssl bash-completion \
+ && apt-get install -y --no-install-recommends jq openssl bash-completion vim joe less \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/*
 
