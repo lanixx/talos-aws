@@ -95,6 +95,7 @@ spec:
       galera:
         wsrep_provider_options:
           gcache.size: "128M"
+          gcomm.thread_prio: "other:0"
   memcached:
     replicas: 1
   api:
@@ -138,6 +139,7 @@ spec:
       galera:
         wsrep_provider_options:
           gcache.size: "128M"
+          gcomm.thread_prio: "other:0"
   memcached:
     replicas: 1
   api:
@@ -190,6 +192,7 @@ spec:
       galera:
         wsrep_provider_options:
           gcache.size: "128M"
+          gcomm.thread_prio: "other:0"
   issuerRef:
     name: yaook-internal
   keystoneRef:
@@ -264,6 +267,7 @@ spec:
         galera:
           wsrep_provider_options:
             gcache.size: "128M"
+            gcomm.thread_prio: "other:0"
     placement:
       replicas: 1
       proxy:
@@ -278,6 +282,7 @@ spec:
         galera:
           wsrep_provider_options:
             gcache.size: "128M"
+            gcomm.thread_prio: "other:0"
     cell0:
       replicas: 1
       proxy:
@@ -292,6 +297,7 @@ spec:
         galera:
           wsrep_provider_options:
             gcache.size: "128M"
+            gcomm.thread_prio: "other:0"
     cell1:
       replicas: 1
       proxy:
@@ -306,6 +312,7 @@ spec:
         galera:
           wsrep_provider_options:
             gcache.size: "128M"
+            gcomm.thread_prio: "other:0"
   eviction: {}
   messageQueue:
     cell1:

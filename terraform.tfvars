@@ -10,7 +10,7 @@ aws_region                  = "us-east-1"
 cluster_name                = "talos-kvm-cluster"
 talos_version               = "v1.12.9"
 kubernetes_version          = "1.33.1"
-control_plane_instance_type = "m7i.large"
+control_plane_instance_type = "m7i.2xlarge"
 control_plane_count         = 3
 
 vpc_cidr               = "10.0.0.0/16"
