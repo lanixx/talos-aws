@@ -63,7 +63,7 @@ export op_and_os_labels="any.yaook.cloud/api=true infra.yaook.cloud/any=true ope
   compute.yaook.cloud/nova-any-service=true ceilometer.yaook.cloud/ceilometer-any-service=true \
   key-manager.yaook.cloud/barbican-keystone-listener=true gnocchi.yaook.cloud/metricd=true \
   infra.yaook.cloud/caching=true network.yaook.cloud/neutron-northd=true \
-  network.yaook.cloud/neutron-ovn-agent=true"
+  network.yaook.cloud/neutron-ovn-agent=true image.yaook.cloud/glance-any-service=true"
 
 # KORRIGIERT: Alle Nodes nehmen (funktioniert auch für control-plane-as-worker)
 op_and_os_nodes="$(kubectl get nodes --no-headers | awk '{print $1}')"

@@ -152,8 +152,8 @@ spec:
       default_store: "file"
   backends:
     file:
-      storageSize: 50Gi
-      storageClassName: local-path
+      storageSize: 10Gi
+      storageClassName: glance-static
   region:
     name: YaookRegion
   issuerRef:
@@ -378,3 +378,28 @@ spec:
   issuerRef:
     name: yaook-internal
   targetRelease: "2025.1"
+---
+# Eigene StorageClass OHNE Provisioner -> local-path fasst dieses PVC nicht an.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: glance-static
+provisioner: kubernetes.io/no-provisioner
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Retain
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: glance-images-pv
+spec:
+  capacity:
+    storage: 20Gi                 # MUSS >= Glance backends.file.storageSize sein
+  accessModes:
+    - ReadWriteMany               # <-- das Etikett, das den RWX-PVC binden laesst
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: glance-static
+  hostPath:
+    path: /var/local-path-provisioner/glance-images
+    type: DirectoryOrCreate       # kubelet legt das Verzeichnis an
