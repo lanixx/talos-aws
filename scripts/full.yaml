@@ -150,6 +150,9 @@ spec:
   glanceConfig:
     glance_store:
       default_store: "file"
+      default_backend: "file"
+    file:
+      filesystem_store_datadir: "/var/lib/glance/images/"
   backends:
     file:
       storageSize: 10Gi
