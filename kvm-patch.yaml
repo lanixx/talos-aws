@@ -1,13 +1,46 @@
+# kvm-patch.yaml 
+#
+# Anwendung auf laufenden Cluster (kein Reboot noetig, kubelet startet neu):
+#   for ip in <node1-ip> <node2-ip> <node3-ip>; do
+#     talosctl -n "$ip" patch machineconfig --patch @kvm-patch.yaml
+#   done
+# Verifikation:
+#   talosctl -n <ip> get mountstatus | grep local-path
+#   talosctl -n <ip> read /proc/modules | grep -E 'openvswitch|geneve'
 machine:
   kubelet:
+    defaultRuntimeSeccompProfileEnabled: false
     extraArgs:
       rotate-server-certificates: "false"
+    # NEU + PFLICHT fuer local-path auf Talos: kubelet laeuft containerisiert
+    # und sieht Host-Pfade nur, wenn sie explizit hineingereicht werden.
+    # Ziel-Pfad muss unter /var liegen (Talos-Doku, Local Storage Guide).
+    extraMounts:
+      - destination: /var/local-path-provisioner
+        type: bind
+        source: /var/local-path-provisioner
+        options:
+          - bind
+          - rshared
+          - rw
   nodeLabels:
     node-role.kubernetes.io/worker: ""
+  # NEU: Kernel-Tuning fuer 7x Galera/InnoDB + viele Container pro Node
+  sysctls:
+    fs.aio-max-nr: "1048576"            # InnoDB native AIO, mehrere Instanzen/Node
+    fs.inotify.max_user_instances: "8192"
+    fs.inotify.max_user_watches: "1048576"
+    vm.max_map_count: "262144"
   kernel:
     modules:
+      # bestehend (aus kvm-patch.yaml uebernommen):
+      # Hinweis: auf m7i (non-metal, kein VMX-Passthrough) laedt kvm_intel nicht,
+      # Nova faellt auf TCG zurueck - wie in terraform.tfvars dokumentiert.
       - name: kvm
       - name: kvm_intel
         parameters:
           - nested=1
           - ept=1
+      # NEU: fuer Yaook-OVN (ovs-vswitchd im Pod braucht die Host-Module)
+      - name: openvswitch
+      - name: geneve

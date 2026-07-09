@@ -13,6 +13,11 @@ kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisione
 kubectl patch storageclass local-path \
   -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
 
+kubectl -n local-path-storage patch configmap local-path-config --type merge -p \
+  '{"data":{"config.json":"{\"nodePathMap\":[{\"node\":\"DEFAULT_PATH_FOR_NON_LISTED_NODES\",\"paths\":[\"/var/local-path-provisioner\"]}]}"}}'
+kubectl -n local-path-storage rollout restart deploy/local-path-provisioner
+kubectl -n local-path-storage rollout status deploy/local-path-provisioner
+
 kubectl label namespace local-path-storage \
   pod-security.kubernetes.io/enforce=privileged \
   pod-security.kubernetes.io/warn=privileged \

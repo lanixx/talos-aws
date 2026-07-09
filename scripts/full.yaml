@@ -89,6 +89,12 @@ spec:
       schedule: "0 * * * *"
     storageClassName: local-path
     storageSize: 2Gi
+    mysqlConfig:
+      mysqld:
+        innodb_buffer_pool_size: "128M"
+      galera:
+        wsrep_provider_options:
+          gcache.size: "128M"
   memcached:
     replicas: 1
   api:
@@ -126,6 +132,12 @@ spec:
       schedule: "0 * * * *"
     storageClassName: local-path
     storageSize: 2Gi
+    mysqlConfig:
+      mysqld:
+        innodb_buffer_pool_size: "128M"
+      galera:
+        wsrep_provider_options:
+          gcache.size: "128M"
   memcached:
     replicas: 1
   api:
@@ -172,6 +184,12 @@ spec:
     replicas: 1
     storageClassName: local-path
     storageSize: 2Gi
+    mysqlConfig:
+      mysqld:
+        innodb_buffer_pool_size: "128M"
+      galera:
+        wsrep_provider_options:
+          gcache.size: "128M"
   issuerRef:
     name: yaook-internal
   keystoneRef:
@@ -240,6 +258,12 @@ spec:
         schedule: "0 * * * *"
       storageClassName: local-path
       storageSize: 2Gi
+      mysqlConfig:
+        mysqld:
+          innodb_buffer_pool_size: "128M"
+        galera:
+          wsrep_provider_options:
+            gcache.size: "128M"
     placement:
       replicas: 1
       proxy:
@@ -248,6 +272,12 @@ spec:
         schedule: "0 * * * *"
       storageClassName: local-path
       storageSize: 2Gi
+      mysqlConfig:
+        mysqld:
+          innodb_buffer_pool_size: "128M"
+        galera:
+          wsrep_provider_options:
+            gcache.size: "128M"
     cell0:
       replicas: 1
       proxy:
@@ -256,6 +286,12 @@ spec:
         schedule: "0 * * * *"
       storageClassName: local-path
       storageSize: 2Gi
+      mysqlConfig:
+        mysqld:
+          innodb_buffer_pool_size: "128M"
+        galera:
+          wsrep_provider_options:
+            gcache.size: "128M"
     cell1:
       replicas: 1
       proxy:
@@ -264,6 +300,12 @@ spec:
         schedule: "0 * * * *"
       storageClassName: local-path
       storageSize: 2Gi
+      mysqlConfig:
+        mysqld:
+          innodb_buffer_pool_size: "128M"
+        galera:
+          wsrep_provider_options:
+            gcache.size: "128M"
   eviction: {}
   messageQueue:
     cell1:
