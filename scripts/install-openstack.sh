@@ -91,4 +91,9 @@ done
 
 for deploy in $(kubectl get deployments -o jsonpath='{.items[*].metadata.name}'); do   kubectl set env deployment/"$deploy" YAOOK_OP_CLUSTER_DOMAIN=cluster.local; done
 
+### kyverno
+helm repo add kyverno https://kyverno.github.io/kyverno/
+helm repo update
+helm upgrade --install kyverno kyverno/kyverno -n kube-system
+
 kubectl apply -f scripts/full.yaml
