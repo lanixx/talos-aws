@@ -148,13 +148,8 @@ spec:
       fqdn: "glance.yaook.cloud"
       port: 32443
   glanceConfig:
-    DEFAULT:
-      enabled_backends: "file:file"
     glance_store:
       default_store: "file"
-      default_backend: "file"
-    file:
-      filesystem_store_datadir: "/var/lib/glance/images/"
   backends:
     file:
       storageSize: 10Gi
